@@ -84,15 +84,6 @@ function openAICompletionToResponses(responseBody, customToolNames = null) {
   const message = choice.message || {};
   const output = [];
 
-  // Reasoning → a reasoning item (summary text), mirroring the streaming path.
-  const reasoning = message.reasoning_content || message.reasoning;
-  if (typeof reasoning === "string" && reasoning.length > 0) {
-    output.push({
-      type: RESPONSES_ITEM.REASONING,
-      summary: [{ type: RESPONSES_ITEM.SUMMARY_TEXT, text: reasoning }],
-    });
-  }
-
   // Assistant text → a message item with output_text content.
   const text = typeof message.content === "string" ? message.content : "";
   if (text.length > 0) {
