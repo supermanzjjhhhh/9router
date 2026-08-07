@@ -1,30 +1,29 @@
 services:
   9router:
-    image: decolua/9router:latest
+    build:
+      context: .
+    image: 9router:0.5.50-custom-reasoning
     container_name: 9router
     restart: always
+    stop_grace_period: 30s
     ports:
       - "20128:20128"
     volumes:
-      - 9router-data:/app/data
-    env_file:
-      - .env
+      - "${NINE_ROUTER_DATA_DIR:-/home/opc/.9router}:/app/data"
     environment:
       DATA_DIR: /app/data
       PORT: "20128"
       HOSTNAME: "0.0.0.0"
       NODE_ENV: production
-      HEADROOM_URL: http://headroom:8787
-    depends_on:
-      - headroom
-
-  headroom:
-    image: ghcr.io/chopratejas/headroom:latest
-    container_name: headroom
-    restart: always
-    ports:
-      - "8787:8787"
-
-volumes:
-  9router-data:
-    name: 9router-data
+      TZ: Asia/Shanghai
+      BASE_URL: http://localhost:20128
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - fetch('http://127.0.0.1:20128/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
