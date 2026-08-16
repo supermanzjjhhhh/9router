@@ -469,11 +469,24 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isOpenAICompatibleProvider(connection.provider)) {
     const modelsBase = connection.providerSpecificData?.baseUrl;
     if (!modelsBase) return { valid: false, error: "Missing base URL" };
+    const extraHeaders = connection.providerSpecificData?.customHeaders || {};
     try {
       const res = await fetchWithConnectionProxy(`${modelsBase.replace(/\/$/, "")}/models`, {
-        headers: { "Authorization": `Bearer ${connection.apiKey}` },
+        headers: { "Authorization": `Bearer ${connection.apiKey}`, ...extraHeaders },
       }, effectiveProxy);
-      return { valid: res.ok, error: res.ok ? null : "Invalid API key or base URL" };
+      if (res.ok) return { valid: true, error: null };
+      // Fallback: try chat/completions if /models endpoint fails (e.g. Cline or server without /models)
+      const chatRes = await fetchWithConnectionProxy(`${modelsBase.replace(/\/$/, "")}/chat/completions`, {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${connection.apiKey}`, "Content-Type": "application/json", ...extraHeaders },
+        body: JSON.stringify({
+          model: connection.defaultModel || "gpt-4",
+          messages: [{ role: "user", content: "ping" }],
+          max_tokens: 1
+        })
+      }, effectiveProxy);
+      const valid = chatRes.ok || (chatRes.status !== 401 && chatRes.status !== 403);
+      return { valid, error: valid ? null : "Invalid API key or base URL" };
     } catch (err) {
       return { valid: false, error: err.message };
     }
@@ -482,6 +495,7 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
   if (isAnthropicCompatibleProvider(connection.provider)) {
     let modelsBase = connection.providerSpecificData?.baseUrl;
     if (!modelsBase) return { valid: false, error: "Missing base URL" };
+    const extraHeaders = connection.providerSpecificData?.customHeaders || {};
     try {
       modelsBase = modelsBase.replace(/\/$/, "");
       if (modelsBase.endsWith("/messages")) modelsBase = modelsBase.slice(0, -9);
@@ -494,6 +508,7 @@ async function testApiKeyConnection(connection, effectiveProxy = null) {
           "anthropic-version": "2023-06-01",
           "content-type": "application/json",
           "Authorization": `Bearer ${connection.apiKey}`,
+          ...extraHeaders,
         },
         body: JSON.stringify({
           model,

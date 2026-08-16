@@ -103,11 +103,29 @@ export async function POST(request) {
         if (!node) {
           return NextResponse.json({ error: "OpenAI Compatible node not found" }, { status: 404 });
         }
+        const extraHeaders = (providerSpecificData?.customHeaders || node.customHeaders) || {};
         const modelsUrl = `${node.baseUrl?.replace(/\/$/, "")}/models`;
         const res = await fetch(modelsUrl, {
-          headers: { "Authorization": `Bearer ${apiKey}` },
+          headers: { "Authorization": `Bearer ${apiKey}`, ...extraHeaders },
         });
-        isValid = res.ok;
+        if (res.ok) {
+          return NextResponse.json({ valid: true, error: null });
+        }
+        // Fallback: try chat/completions if /models endpoint fails (e.g. Cline or server without /models)
+        const chatRes = await fetch(`${node.baseUrl?.replace(/\/$/, "")}/chat/completions`, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+            ...extraHeaders
+          },
+          body: JSON.stringify({
+            model: "test",
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1
+          })
+        });
+        isValid = chatRes.ok || (chatRes.status !== 401 && chatRes.status !== 403);
         return NextResponse.json({
           valid: isValid,
           error: isValid ? null : "Invalid API key",
@@ -151,6 +169,7 @@ export async function POST(request) {
           return NextResponse.json({ error: "Anthropic Compatible node not found" }, { status: 404 });
         }
 
+        const extraHeaders = (providerSpecificData?.customHeaders || node.customHeaders) || {};
         let normalizedBase = node.baseUrl?.trim().replace(/\/$/, "") || "";
         if (normalizedBase.endsWith("/messages")) {
           normalizedBase = normalizedBase.slice(0, -9); // remove /messages
@@ -166,6 +185,7 @@ export async function POST(request) {
             "anthropic-version": "2023-06-01",
             "content-type": "application/json",
             "Authorization": `Bearer ${apiKey}`,
+            ...extraHeaders,
           },
           body: JSON.stringify({
             model,

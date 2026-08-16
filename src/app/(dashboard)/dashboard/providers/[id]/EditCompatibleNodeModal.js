@@ -10,6 +10,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
     prefix: "",
     apiType: "chat",
     baseUrl: "https://api.openai.com/v1",
+    customHeaders: "",
   });
   const [saving, setSaving] = useState(false);
   const [checkKey, setCheckKey] = useState("");
@@ -24,6 +25,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         prefix: node.prefix || "",
         apiType: node.apiType || "chat",
         baseUrl: node.baseUrl || (isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
+        customHeaders: node.customHeaders ? JSON.stringify(node.customHeaders) : "",
       });
     }
   }, [node, isAnthropic]);
@@ -33,14 +35,30 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
     { value: "responses", label: "Responses API" },
   ];
 
+  function parseCustomHeaders(str) {
+    if (!str || !str.trim()) return undefined;
+    try {
+      const parsed = JSON.parse(str.trim());
+      return typeof parsed === "object" && parsed !== null ? parsed : undefined;
+    } catch {
+      return null;
+    }
+  }
+
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    const parsedHeaders = parseCustomHeaders(formData.customHeaders);
+    if (parsedHeaders === null) {
+      setValidationResult("failed");
+      return;
+    }
     setSaving(true);
     try {
       const payload = {
         name: formData.name,
         prefix: formData.prefix,
         baseUrl: formData.baseUrl,
+        customHeaders: parsedHeaders || null,
       };
       if (!isAnthropic) {
         payload.apiType = formData.apiType;
@@ -52,6 +70,11 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   };
 
   const handleValidate = async () => {
+    const parsedHeaders = parseCustomHeaders(formData.customHeaders);
+    if (parsedHeaders === null) {
+      setValidationResult("failed");
+      return;
+    }
     setValidating(true);
     try {
       const res = await fetch("/api/provider-nodes/validate", {
@@ -61,7 +84,8 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           baseUrl: formData.baseUrl,
           apiKey: checkKey,
           type: isAnthropic ? "anthropic-compatible" : "openai-compatible",
-          modelId: checkModelId.trim() || undefined
+          modelId: checkModelId.trim() || undefined,
+          customHeaders: parsedHeaders,
         }),
       });
       const data = await res.json();
@@ -106,6 +130,13 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
           placeholder={isAnthropic ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"}
           hint={`Use the base URL (ending in /v1) for your ${isAnthropic ? "Anthropic" : "OpenAI"}-compatible API.`}
+        />
+        <Input
+          label="Custom Headers (JSON, optional)"
+          value={formData.customHeaders}
+          onChange={(e) => setFormData({ ...formData, customHeaders: e.target.value })}
+          placeholder='{"x-client-type": "cline-cli"}'
+          hint='Optional JSON map of extra request headers to send to upstream.'
         />
         <div className="flex gap-2">
           <Input

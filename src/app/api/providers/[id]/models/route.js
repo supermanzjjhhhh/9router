@@ -453,12 +453,14 @@ export async function GET(request, { params }) {
       if (!baseUrl) {
         return NextResponse.json({ error: "No base URL configured for OpenAI compatible provider" }, { status: 400 });
       }
+      const extraHeaders = connection.providerSpecificData?.customHeaders || {};
       const url = `${baseUrl.replace(/\/$/, "")}/models`;
       const response = await fetch(url, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${connection.apiKey}`,
+          ...extraHeaders,
         },
       });
 
@@ -492,6 +494,7 @@ export async function GET(request, { params }) {
         baseUrl = baseUrl.slice(0, -9);
       }
 
+      const extraHeaders = connection.providerSpecificData?.customHeaders || {};
       const url = `${baseUrl}/models`;
       const response = await fetch(url, {
         method: "GET",
@@ -499,7 +502,8 @@ export async function GET(request, { params }) {
           "Content-Type": "application/json",
           "x-api-key": connection.apiKey,
           "anthropic-version": "2023-06-01",
-          "Authorization": `Bearer ${connection.apiKey}`
+          "Authorization": `Bearer ${connection.apiKey}`,
+          ...extraHeaders,
         },
       });
 

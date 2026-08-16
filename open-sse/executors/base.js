@@ -72,6 +72,10 @@ export class BaseExecutor {
       headers["Accept"] = "text/event-stream";
     }
 
+    if (credentials?.providerSpecificData?.customHeaders && typeof credentials.providerSpecificData.customHeaders === "object") {
+      Object.assign(headers, credentials.providerSpecificData.customHeaders);
+    }
+
     return headers;
   }
 

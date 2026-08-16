@@ -34,6 +34,16 @@ const API_TYPE_OPTIONS = [
   { value: "responses", label: "Responses API" },
 ];
 
+function parseCustomHeaders(str) {
+  if (!str || !str.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(str.trim());
+    return typeof parsed === "object" && parsed !== null ? parsed : undefined;
+  } catch {
+    return null;
+  }
+}
+
 function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   const config = VARIANT_CONFIG[variant];
   const initialFormData = () => ({
@@ -41,6 +51,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
     prefix: "",
     ...(config.hasApiType ? { apiType: "chat" } : {}),
     baseUrl: config.defaultBaseUrl,
+    customHeaders: "",
   });
 
   const [formData, setFormData] = useState(initialFormData);
@@ -63,6 +74,11 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
 
   const handleSubmit = async () => {
     if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    const parsedHeaders = parseCustomHeaders(formData.customHeaders);
+    if (parsedHeaders === null) {
+      setValidationResult({ valid: false, error: "Custom Headers must be valid JSON format, e.g. {\"x-client-type\": \"cline-cli\"}" });
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/provider-nodes", {
@@ -74,6 +90,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           ...(config.hasApiType ? { apiType: formData.apiType } : {}),
           baseUrl: formData.baseUrl,
           type: config.type,
+          customHeaders: parsedHeaders,
         }),
       });
       const data = await res.json();
@@ -91,6 +108,11 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   };
 
   const handleValidate = async () => {
+    const parsedHeaders = parseCustomHeaders(formData.customHeaders);
+    if (parsedHeaders === null) {
+      setValidationResult({ valid: false, error: "Custom Headers must be valid JSON format" });
+      return;
+    }
     setValidating(true);
     try {
       const res = await fetch("/api/provider-nodes/validate", {
@@ -101,6 +123,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           apiKey: checkKey,
           type: config.type,
           modelId: checkModelId.trim() || undefined,
+          customHeaders: parsedHeaders,
         }),
       });
       const data = await res.json();
@@ -164,6 +187,13 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
           placeholder={config.defaultBaseUrl}
           hint={config.baseUrlHint}
+        />
+        <Input
+          label="Custom Headers (JSON, optional)"
+          value={formData.customHeaders}
+          onChange={(e) => setFormData({ ...formData, customHeaders: e.target.value })}
+          placeholder='{"x-client-type": "cline-cli"}'
+          hint='Optional JSON map of extra request headers to send to upstream.'
         />
         <Input
           label="API Key (for Check)"

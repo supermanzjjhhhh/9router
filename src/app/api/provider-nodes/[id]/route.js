@@ -6,7 +6,7 @@ export async function PUT(request, { params }) {
   try {
     const { id } = await params;
     const body = await request.json();
-    const { name, prefix, apiType, baseUrl } = body;
+    const { name, prefix, apiType, baseUrl, customHeaders } = body;
     const node = await getProviderNodeById(id);
 
     if (!node) {
@@ -54,6 +54,10 @@ export async function PUT(request, { params }) {
       baseUrl: sanitizedBaseUrl,
     };
 
+    if (customHeaders !== undefined) {
+      updates.customHeaders = customHeaders && typeof customHeaders === "object" ? customHeaders : null;
+    }
+
     if (node.type === "openai-compatible") {
       updates.apiType = apiType;
     }
@@ -69,6 +73,7 @@ export async function PUT(request, { params }) {
           apiType: node.type === "openai-compatible" ? apiType : undefined,
           baseUrl: sanitizedBaseUrl,
           nodeName: updated.name,
+          ...(updated.customHeaders !== undefined ? { customHeaders: updated.customHeaders || undefined } : {}),
         }
       })
     )));
