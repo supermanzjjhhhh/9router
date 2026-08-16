@@ -24,12 +24,12 @@ export default {
   },
   models: [
     { id: "gpt-oss:120b", name: "GPT OSS 120B" },
-    { id: "kimi-k2.5", name: "Kimi K2.5" },
-    { id: "glm-5", name: "GLM 5" },
-    { id: "minimax-m2.5", name: "MiniMax M2.5" },
-    { id: "glm-4.7-flash", name: "GLM 4.7 Flash" },
-    { id: "qwen3.5", name: "Qwen3.5" },
+    { id: "gpt-oss:20b", name: "GPT OSS 20B" },
     { id: "minimax-m3", name: "MiniMax M3" },
+    { id: "nemotron-3-nano:30b", name: "Nemotron 3 Nano 30B" },
+    { id: "nemotron-3-super", name: "Nemotron 3 Super" },
+    { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra" },
+    { id: "gemma4:31b", name: "Gemma 4 31B" },
   ],
   serviceKinds: ["llm"],
   features: {
