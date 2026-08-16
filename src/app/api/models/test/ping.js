@@ -181,6 +181,9 @@ export async function pingModelByKind(model, kind, baseUrl = `http://127.0.0.1:$
     };
   }
 
+  if (parsed?.data?.choices && !parsed?.choices) {
+    parsed = { ...parsed.data, usage: parsed.data.usage || parsed.usage };
+  }
   const hasChoices = Array.isArray(parsed?.choices) && parsed.choices.length > 0;
 
   // Soft-pass (issue #3010): a reasoning model may burn its whole budget on

@@ -288,6 +288,10 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
   } else {
     try {
       responseBody = await providerResponse.json();
+      // Unwrap standard { success: true, data: { ... } } or { data: { ... } } wrappers (e.g. Cline API)
+      if (responseBody && typeof responseBody === "object" && !responseBody.choices && responseBody.data && typeof responseBody.data === "object" && responseBody.data.choices) {
+        responseBody = { ...responseBody.data, usage: responseBody.data.usage || responseBody.usage };
+      }
     } catch (err) {
       appendLog({ status: `FAILED ${HTTP_STATUS.BAD_GATEWAY}` });
       console.error(`[ChatCore] Failed to parse JSON from ${provider}:`, err.message);
