@@ -17,6 +17,7 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   const [checkModelId, setCheckModelId] = useState("");
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [saveError, setSaveError] = useState("");
 
   useEffect(() => {
     if (node) {
@@ -46,13 +47,14 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
   }
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    if (!formData.name.trim() || !formData.baseUrl.trim()) return;
     const parsedHeaders = parseCustomHeaders(formData.customHeaders);
     if (parsedHeaders === null) {
       setValidationResult("failed");
       return;
     }
     setSaving(true);
+    setSaveError("");
     try {
       const payload = {
         name: formData.name,
@@ -64,6 +66,10 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
         payload.apiType = formData.apiType;
       }
       await onSave(payload);
+    } catch (error) {
+      setValidationResult("failed");
+      setSaveError(error?.message || "Failed to save");
+      console.log("Error saving compatible node:", error);
     } finally {
       setSaving(false);
     }
@@ -110,11 +116,11 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           hint="Required. A friendly label for this node."
         />
         <Input
-          label="Prefix"
+          label="Prefix (optional)"
           value={formData.prefix}
           onChange={(e) => setFormData({ ...formData, prefix: e.target.value })}
           placeholder={isAnthropic ? "ac-prod" : "oc-prod"}
-          hint="Required. Used as the provider prefix for model IDs."
+          hint="Optional. Used as the provider prefix for model IDs. Leave empty for relay/gateway nodes so clients call bare upstream model ids with no prefix. Only one empty-prefix node is allowed per type."
         />
         {!isAnthropic && (
           <Select
@@ -160,12 +166,15 @@ export default function EditCompatibleNodeModal({ isOpen, node, onSave, onClose,
           hint="If provider lacks /models endpoint, enter a model ID to validate via chat/completions instead."
         />
         {validationResult && (
-          <Badge variant={validationResult === "success" ? "success" : "error"}>
-            {validationResult === "success" ? "Valid" : "Invalid"}
-          </Badge>
+          <div className="flex flex-col gap-1">
+            <Badge variant={validationResult === "success" ? "success" : "error"}>
+              {validationResult === "success" ? "Valid" : "Invalid"}
+            </Badge>
+            {saveError && <span className="text-sm text-red-500">{saveError}</span>}
+          </div>
         )}
         <div className="flex gap-2">
-          <Button onClick={handleSubmit} fullWidth disabled={!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim() || saving}>
+          <Button onClick={handleSubmit} fullWidth disabled={!formData.name.trim() || !formData.baseUrl.trim() || saving}>
             {saving ? "Saving..." : "Save"}
           </Button>
           <Button onClick={onClose} variant="ghost" fullWidth>

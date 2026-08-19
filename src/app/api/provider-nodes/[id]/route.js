@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
-import { deleteProviderConnectionsByProvider, deleteProviderNode, getProviderConnections, getProviderNodeById, updateProviderConnection, updateProviderNode } from "@/models";
+import { deleteProviderConnectionsByProvider, deleteProviderNode, getProviderConnections, getProviderNodeById, getProviderNodes, updateProviderConnection, updateProviderNode } from "@/models";
+import {
+  normalizeCompatiblePrefix,
+  findEmptyPrefixConflict,
+} from "@/shared/utils/compatiblePrefix";
 
 // PUT /api/provider-nodes/[id] - Update provider node
 export async function PUT(request, { params }) {
@@ -17,8 +21,20 @@ export async function PUT(request, { params }) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    if (!prefix?.trim()) {
-      return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
+    // Prefix is optional for relay/gateway nodes. Empty = bare upstream model ids.
+    const normalizedPrefix = normalizeCompatiblePrefix(prefix);
+
+    if (normalizedPrefix === "") {
+      const existing = await getProviderNodes({ type: node.type });
+      const conflict = findEmptyPrefixConflict(existing, { type: node.type, excludeId: id });
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: `Only one empty-prefix ${node.type} node is allowed. "${conflict.name || conflict.id}" already uses no prefix. Set a prefix, or clear the other node's prefix first.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Only validate apiType for OpenAI Compatible nodes
@@ -50,7 +66,7 @@ export async function PUT(request, { params }) {
 
     const updates = {
       name: name.trim(),
-      prefix: prefix.trim(),
+      prefix: normalizedPrefix,
       baseUrl: sanitizedBaseUrl,
     };
 
@@ -69,7 +85,7 @@ export async function PUT(request, { params }) {
       updateProviderConnection(connection.id, {
         providerSpecificData: {
           ...(connection.providerSpecificData || {}),
-          prefix: prefix.trim(),
+          prefix: normalizedPrefix,
           apiType: node.type === "openai-compatible" ? apiType : undefined,
           baseUrl: sanitizedBaseUrl,
           nodeName: updated.name,

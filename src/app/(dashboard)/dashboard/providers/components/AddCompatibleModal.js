@@ -73,7 +73,7 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
   }, [config.hasApiType ? formData.apiType : isOpen]);
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    if (!formData.name.trim() || !formData.baseUrl.trim()) return;
     const parsedHeaders = parseCustomHeaders(formData.customHeaders);
     if (parsedHeaders === null) {
       setValidationResult({ valid: false, error: "Custom Headers must be valid JSON format, e.g. {\"x-client-type\": \"cline-cli\"}" });
@@ -99,9 +99,12 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
         setFormData(initialFormData());
         setCheckKey("");
         setValidationResult(null);
+      } else {
+        setValidationResult({ valid: false, error: data?.error || `Failed to create ${config.errorLabel} node` });
       }
     } catch (error) {
       console.log(`Error creating ${config.errorLabel} node:`, error);
+      setValidationResult({ valid: false, error: "Network error" });
     } finally {
       setSubmitting(false);
     }
@@ -167,11 +170,11 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
           hint="Required. A friendly label for this node."
         />
         <Input
-          label="Prefix"
+          label="Prefix (optional)"
           value={formData.prefix}
           onChange={(e) => setFormData({ ...formData, prefix: e.target.value })}
           placeholder={config.prefixPlaceholder}
-          hint="Required. Used as the provider prefix for model IDs."
+          hint="Optional. Used as the provider prefix for model IDs (e.g. oc-prod/gpt-4o). Leave empty for relay/gateway nodes (new-api, sub2api, etc.) so clients call bare upstream model ids with no prefix."
         />
         {config.hasApiType && (
           <Select
@@ -225,7 +228,6 @@ function AddCompatibleModal({ variant, isOpen, onClose, onCreated }) {
             fullWidth
             disabled={
               !formData.name.trim() ||
-              !formData.prefix.trim() ||
               !formData.baseUrl.trim() ||
               submitting
             }

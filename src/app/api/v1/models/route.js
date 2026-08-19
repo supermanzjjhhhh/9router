@@ -6,6 +6,7 @@ import {
   isOpenAICompatibleProvider,
 } from "@/shared/constants/providers";
 import { getProviderConnections, getCombos, getCustomModels, getModelAliases } from "@/lib/localDb";
+import { formatCompatibleModelRef, resolveCompatibleOutputAlias } from "@/shared/utils/compatiblePrefix";
 import { getDisabledModels } from "@/lib/disabledModelsDb";
 import { resolveKiroModels } from "open-sse/services/kiroModels.js";
 import { resolveKimchiModels } from "open-sse/services/kimchiModels.js";
@@ -346,11 +347,18 @@ export async function buildModelsList(kindFilter, options = {}) {
       if (!providerMatchesKinds(providerId, kindFilter)) continue;
 
       const staticAlias = PROVIDER_ID_TO_ALIAS[providerId] || providerId;
-      const outputAlias = (
-        conn?.providerSpecificData?.prefix
-        || getProviderAlias(providerId)
-        || staticAlias
-      ).trim();
+      // Preserve empty string prefix for relay/gateway compatible nodes.
+      // Only fall back when prefix is missing/nullish, not when it is "".
+      const rawPrefix = conn?.providerSpecificData?.prefix;
+      const isCompatibleProviderForAlias =
+        isOpenAICompatibleProvider(providerId) || isAnthropicCompatibleProvider(providerId);
+      const outputAlias = isCompatibleProviderForAlias
+        ? resolveCompatibleOutputAlias(rawPrefix, getProviderAlias(providerId) || staticAlias)
+        : (
+            (typeof rawPrefix === "string" && rawPrefix.trim())
+            || getProviderAlias(providerId)
+            || staticAlias
+          ).trim();
       const providerModels = PROVIDER_MODELS[staticAlias] || [];
       const enabledModels = conn?.providerSpecificData?.enabledModels;
       const hasExplicitEnabledModels =
@@ -406,13 +414,13 @@ export async function buildModelsList(kindFilter, options = {}) {
 
       const modelIds = rawModelIds
         .map((modelId) => {
-          if (modelId.startsWith(`${outputAlias}/`)) {
+          if (outputAlias && modelId.startsWith(`${outputAlias}/`)) {
             return modelId.slice(outputAlias.length + 1);
           }
-          if (modelId.startsWith(`${staticAlias}/`)) {
+          if (staticAlias && modelId.startsWith(`${staticAlias}/`)) {
             return modelId.slice(staticAlias.length + 1);
           }
-          if (modelId.startsWith(`${providerId}/`)) {
+          if (providerId && modelId.startsWith(`${providerId}/`)) {
             return modelId.slice(providerId.length + 1);
           }
           return modelId;
@@ -439,21 +447,20 @@ export async function buildModelsList(kindFilter, options = {}) {
 
       const aliasModelIds = Object.values(modelAliases || {})
         .filter((fullModel) => {
-          if (typeof fullModel !== "string" || !fullModel.includes("/")) return false;
-          return (
-            fullModel.startsWith(`${outputAlias}/`) ||
-            fullModel.startsWith(`${staticAlias}/`) ||
-            fullModel.startsWith(`${providerId}/`)
-          );
+          if (typeof fullModel !== "string") return false;
+          if (outputAlias && fullModel.startsWith(`${outputAlias}/`)) return true;
+          if (staticAlias && fullModel.startsWith(`${staticAlias}/`)) return true;
+          if (providerId && fullModel.startsWith(`${providerId}/`)) return true;
+          return false;
         })
         .map((fullModel) => {
-          if (fullModel.startsWith(`${outputAlias}/`)) {
+          if (outputAlias && fullModel.startsWith(`${outputAlias}/`)) {
             return fullModel.slice(outputAlias.length + 1);
           }
-          if (fullModel.startsWith(`${staticAlias}/`)) {
+          if (staticAlias && fullModel.startsWith(`${staticAlias}/`)) {
             return fullModel.slice(staticAlias.length + 1);
           }
-          if (fullModel.startsWith(`${providerId}/`)) {
+          if (providerId && fullModel.startsWith(`${providerId}/`)) {
             return fullModel.slice(providerId.length + 1);
           }
           return fullModel;
@@ -473,9 +480,11 @@ export async function buildModelsList(kindFilter, options = {}) {
         if (isDisabled(outputAlias, modelId) || isDisabled(staticAlias, modelId)) continue;
 
         const model = {
-          id: `${outputAlias}/${modelId}`,
+          id: isCompatibleProvider
+            ? formatCompatibleModelRef(outputAlias, modelId)
+            : `${outputAlias}/${modelId}`,
           object: "model",
-          owned_by: outputAlias,
+          owned_by: outputAlias || staticAlias,
         };
         // Live-catalog resolvers (kiro/qoder/github/clinepass) mostly only return
         // { id, name } — no per-model capability data. Fall back to the same

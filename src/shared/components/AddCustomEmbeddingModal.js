@@ -37,7 +37,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
   }, [isOpen, isEdit, node]);
 
   const handleSubmit = async () => {
-    if (!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim()) return;
+    if (!formData.name.trim() || !formData.baseUrl.trim()) return;
     setSubmitting(true);
     try {
       const url = isEdit ? `/api/provider-nodes/${node.id}` : "/api/provider-nodes";
@@ -118,11 +118,11 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
           hint="Required. A friendly label for this embedding provider."
         />
         <Input
-          label="Prefix"
+          label="Prefix (optional)"
           value={formData.prefix}
           onChange={(e) => setFormData({ ...formData, prefix: e.target.value })}
           placeholder="voyage"
-          hint="Required. Used as the provider prefix for model IDs (e.g. voyage/voyage-3)."
+          hint="Optional. Used as the provider prefix for model IDs (e.g. voyage/voyage-3). Leave empty for relay nodes so clients call bare model ids."
         />
         <Input
           label="Base URL"
@@ -158,7 +158,7 @@ export default function AddCustomEmbeddingModal({ isOpen, onClose, onCreated, on
           <Button
             onClick={handleSubmit}
             fullWidth
-            disabled={!formData.name.trim() || !formData.prefix.trim() || !formData.baseUrl.trim() || submitting}
+            disabled={!formData.name.trim() || !formData.baseUrl.trim() || submitting}
           >
             {submitting ? (isEdit ? "Saving..." : "Creating...") : (isEdit ? "Save" : "Create")}
           </Button>

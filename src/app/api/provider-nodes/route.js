@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { createProviderNode, getProviderNodes } from "@/models";
 import { OPENAI_COMPATIBLE_PREFIX, ANTHROPIC_COMPATIBLE_PREFIX, CUSTOM_EMBEDDING_PREFIX } from "@/shared/constants/providers";
 import { generateId } from "@/shared/utils";
+import {
+  normalizeCompatiblePrefix,
+  findEmptyPrefixConflict,
+} from "@/shared/utils/compatiblePrefix";
 
 export const dynamic = "force-dynamic";
 
@@ -38,12 +42,25 @@ export async function POST(request) {
       return NextResponse.json({ error: "Name is required" }, { status: 400 });
     }
 
-    if (!prefix?.trim()) {
-      return NextResponse.json({ error: "Prefix is required" }, { status: 400 });
-    }
+    // Prefix is optional for relay/gateway nodes (new-api, sub2api, etc.).
+    // Empty prefix means clients call bare upstream model ids with no provider prefix.
+    const normalizedPrefix = normalizeCompatiblePrefix(prefix);
 
     // Determine type
     const nodeType = type || "openai-compatible";
+
+    if (normalizedPrefix === "") {
+      const existing = await getProviderNodes({ type: nodeType });
+      const conflict = findEmptyPrefixConflict(existing, { type: nodeType });
+      if (conflict) {
+        return NextResponse.json(
+          {
+            error: `Only one empty-prefix ${nodeType} node is allowed. "${conflict.name || conflict.id}" already uses no prefix. Set a prefix, or clear the other node's prefix first.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
 
     if (nodeType === "openai-compatible") {
       if (!apiType || !["chat", "responses"].includes(apiType)) {
@@ -53,7 +70,7 @@ export async function POST(request) {
       const node = await createProviderNode({
         id: `${OPENAI_COMPATIBLE_PREFIX}${apiType}-${generateId()}`,
         type: "openai-compatible",
-        prefix: prefix.trim(),
+        prefix: normalizedPrefix,
         apiType,
         baseUrl: (baseUrl || OPENAI_COMPATIBLE_DEFAULTS.baseUrl).trim(),
         name: name.trim(),
@@ -72,7 +89,7 @@ export async function POST(request) {
       const node = await createProviderNode({
         id: `${CUSTOM_EMBEDDING_PREFIX}${generateId()}`,
         type: "custom-embedding",
-        prefix: prefix.trim(),
+        prefix: normalizedPrefix,
         baseUrl: sanitizedBaseUrl,
         name: name.trim(),
       });
@@ -90,7 +107,7 @@ export async function POST(request) {
       const node = await createProviderNode({
         id: `${ANTHROPIC_COMPATIBLE_PREFIX}${generateId()}`,
         type: "anthropic-compatible",
-        prefix: prefix.trim(),
+        prefix: normalizedPrefix,
         baseUrl: sanitizedBaseUrl,
         name: name.trim(),
         customHeaders: customHeaders && typeof customHeaders === "object" ? customHeaders : undefined,

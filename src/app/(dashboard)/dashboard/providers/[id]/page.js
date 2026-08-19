@@ -22,6 +22,7 @@ import AddApiKeyModal from "./AddApiKeyModal";
 import EditCompatibleNodeModal from "./EditCompatibleNodeModal";
 import AddCustomModelModal from "./AddCustomModelModal";
 import BulkImportCodexModal from "./BulkImportCodexModal";
+import { resolveCompatibleOutputAlias, formatCompatibleModelRef } from "@/shared/utils/compatiblePrefix";
 
 const ONE_BY_ONE_DELAY_MS = 1000;
 
@@ -191,7 +192,7 @@ export default function ProviderDetailPage() {
     return set.size ? ["auto", ...[...set]] : null;
   })();
   const providerDisplayAlias = isCompatible
-    ? (providerNode?.prefix || providerId)
+    ? resolveCompatibleOutputAlias(providerNode?.prefix, providerId)
     : providerAlias;
 
   const fetchDisabledModels = useCallback(async () => {
@@ -345,21 +346,18 @@ export default function ProviderDetailPage() {
   }, [providerId, isCompatible]);
 
   const handleUpdateNode = async (formData) => {
-    try {
-      const res = await fetch(`/api/provider-nodes/${providerId}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formData),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setProviderNode(data.node);
-        await fetchConnections();
-        setShowEditNodeModal(false);
-      }
-    } catch (error) {
-      console.log("Error updating provider node:", error);
+    const res = await fetch(`/api/provider-nodes/${providerId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(formData),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      throw new Error(data?.error || "Failed to update provider node");
     }
+    setProviderNode(data.node);
+    await fetchConnections();
+    setShowEditNodeModal(false);
   };
 
   const saveProviderStrategy = async (strategy, stickyLimit) => {
@@ -1113,7 +1111,7 @@ export default function ProviderDetailPage() {
           <ModelRow
             key={`${model.source}-${model.fullModel}`}
             model={{ id: model.id, name: model.name }}
-            fullModel={`${providerDisplayAlias}/${model.id}`}
+            fullModel={formatCompatibleModelRef(providerDisplayAlias, model.id)}
             alias={model.alias}
             copied={copied}
             onCopy={copy}
@@ -1145,7 +1143,7 @@ export default function ProviderDetailPage() {
             <ModelRow
               key={model.id}
               model={model}
-              fullModel={`${providerDisplayAlias}/${model.id}`}
+              fullModel={formatCompatibleModelRef(providerDisplayAlias, model.id)}
               alias={existingAlias}
               copied={copied}
               onCopy={copy}
