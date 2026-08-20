@@ -1008,5 +1008,18 @@
       "preserveCacheControl": true
     },
     "format": "openai"
+  },
+  "freebuff": {
+    "baseUrl": "https://www.codebuff.com/api/v1/chat/completions",
+    "format": "openai",
+    "forceStream": true,
+    "headers": {
+      "User-Agent": "ai-sdk/openai-compatible/0.0.141/codebuff"
+    },
+    "auth": {
+      "combined": true,
+      "header": "Authorization",
+      "scheme": "bearer"
+    }
   }
 }

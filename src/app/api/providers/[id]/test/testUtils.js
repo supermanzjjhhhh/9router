@@ -102,6 +102,18 @@ const OAUTH_TEST_CONFIG = {
     },
     refreshable: false,
   },
+  freebuff: {
+    url: "https://www.codebuff.com/api/v1/usage",
+    method: "POST",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    body: JSON.stringify({ fingerprintId: "cli-usage" }),
+    extraHeaders: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    refreshable: false,
+  },
   // Grok CLI / Grok Build — probe /v1/user (no inference quota). Headers mirror official CLI.
   "grok-cli": {
     url: PROVIDERS["grok-cli"]?.userUrl || "https://cli-chat-proxy.grok.com/v1/user",
@@ -823,6 +835,19 @@ case "llm7": {
           },
         }, effectiveProxy);
         return { valid: res.ok, error: res.ok ? null : "Invalid API key", refreshed: false };
+      }
+      case "freebuff": {
+        const token = connection.apiKey || connection.accessToken;
+        const res = await fetchWithConnectionProxy("https://www.codebuff.com/api/v1/usage", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Accept: "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ fingerprintId: "cli-usage" }),
+        }, effectiveProxy);
+        return { valid: res.ok, error: res.ok ? null : "Invalid Freebuff token / API key", refreshed: false };
       }
       default:
         return { valid: false, error: "Provider test not supported" };

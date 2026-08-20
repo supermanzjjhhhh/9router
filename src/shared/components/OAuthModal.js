@@ -234,6 +234,7 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
         "codebuddy-intl",
         "qoder",
         "grok-cli",
+        "freebuff",
       ];
       if (deviceCodeProviders.includes(provider)) {
         setIsDeviceCode(true);
@@ -276,6 +277,12 @@ export default function OAuthModal({ isOpen, provider, providerInfo, onSuccess, 
             }
           : (provider === "kimi" || provider === "kimi-coding")
           ? { _kimiDeviceId: data._kimiDeviceId }
+          : provider === "freebuff"
+          ? {
+              _fingerprintId: data._fingerprintId,
+              _fingerprintHash: data._fingerprintHash,
+              _expiresAt: data._expiresAt,
+            }
           : null;
         startPolling(
           data.device_code,

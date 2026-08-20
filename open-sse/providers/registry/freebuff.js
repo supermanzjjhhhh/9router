@@ -1,0 +1,52 @@
+export default {
+  id: "freebuff",
+  priority: 94,
+  alias: "freebuff",
+  uiAlias: "freebuff",
+  display: {
+    name: "Freebuff",
+    icon: "code",
+    color: "#00B4D8",
+    textIcon: "FB",
+    website: "https://codebuff.com",
+    notice: {
+      signupUrl: "https://codebuff.com",
+    },
+  },
+  category: "freeTier",
+  authModes: ["oauth", "apikey"],
+  hasOAuth: true,
+  transport: {
+    baseUrl: "https://www.codebuff.com/api/v1/chat/completions",
+    format: "openai",
+    forceStream: true,
+    headers: {
+      "User-Agent": "ai-sdk/openai-compatible/0.0.141/codebuff",
+    },
+    auth: {
+      combined: true,
+      header: "Authorization",
+      scheme: "bearer",
+    },
+  },
+  models: [
+    { id: "mimo/mimo-v2.5", name: "MiMo-v2.5" },
+    { id: "mimo/mimo-v2.5-pro", name: "MiMo-v2.5-Pro" },
+    { id: "deepseek/deepseek-v4-pro", name: "DeepSeek-V4-Pro" },
+    { id: "deepseek/deepseek-v4-flash", name: "DeepSeek-V4-Flash" },
+    { id: "minimax/minimax-m3", name: "MiniMax-M3" },
+    { id: "minimax/minimax-m2.7", name: "MiniMax-M2.7" },
+    { id: "moonshotai/kimi-k2.6", name: "Kimi-K2.6" },
+    { id: "openai/gpt-5.6-luna", name: "GPT-5.6-Luna" },
+  ],
+  serviceKinds: ["llm"],
+  oauth: {
+    apiBaseUrl: "https://www.codebuff.com",
+    initiateUrl: "https://www.codebuff.com/api/auth/cli/code",
+    pollUrlBase: "https://www.codebuff.com/api/auth/cli/status",
+    sessionUrl: "https://www.codebuff.com/api/v1/freebuff/session",
+    agentRunsUrl: "https://www.codebuff.com/api/v1/agent-runs",
+    pollInterval: 5000,
+  },
+  passthroughModels: true,
+};

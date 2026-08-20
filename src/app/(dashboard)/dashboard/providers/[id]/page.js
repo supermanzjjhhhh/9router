@@ -158,10 +158,12 @@ export default function ProviderDetailPage() {
     providerId === "xai" ? "Grok Build OAuth"
     : providerId === "grok-cli" ? "Grok CLI Device Login"
     : providerId === "kimi" ? "Kimi Coding OAuth"
+    : providerId === "freebuff" ? "Freebuff OAuth"
     : "OAuth";
   const apiKeyConnectionLabel =
     providerId === "xai" ? "xAI API Key"
     : providerId === "kimi" ? "Kimi API Key"
+    : providerId === "freebuff" ? "Auth Token"
     : providerId === "qoder" ? "PAT"
     : "API Key";
   // Resolve suffix "(level)" for a model when a thinking level is picked and the model supports it.
