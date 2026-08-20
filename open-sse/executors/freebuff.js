@@ -9,14 +9,18 @@ const DEFAULT_SDK_UA = "ai-sdk/openai-compatible/0.0.141/codebuff";
 const CANONICAL_BUFFY = "You are Buffy, the strategic coding assistant.";
 const CONTEXT_PRUNER_AGENT = "context-pruner";
 
+// Canonical root agents matching Freebuff official catalog
 const MODEL_AGENTS = {
-  "deepseek/deepseek-v4-flash": "base2-free-deepseek-flash",
-  "deepseek/deepseek-v4-pro": "base2-free-deepseek",
-  "moonshotai/kimi-k2.6": "base2-free-kimi",
-  "minimax/minimax-m2.7": "base2-free",
-  "minimax/minimax-m3": "base2-free-minimax-m3",
   "mimo/mimo-v2.5": "base2-free-mimo",
-  "mimo/mimo-v2.5-pro": "base2-free-mimo-pro",
+  "minimax/minimax-m3": "base2-free-minimax-m3",
+  "minimax/minimax-m2.7": "base2-free",
+  "openai/gpt-5.6-luna": "base2-free-luna",
+  "deepseek/deepseek-v4-pro": "base2-free-deepseek",
+  "deepseek/deepseek-v4-flash": "base2-free-deepseek-flash",
+  "z-ai/glm-5.2": "base2-free-glm",
+  "crof/kimi-k3-eco": "base2-free-kimi-k3-eco",
+  "anthropic/claude-fable-5": "base2-free-fable",
+  "meta/muse-spark-1.2-contributor": "base2-free-muse-spark",
 };
 
 // In-memory cache for sessions & runs (keyed by token:model)
@@ -25,7 +29,14 @@ const runCache = new Map();  // key -> { runId, childRunId, ts }
 const RUN_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function getAgentForModel(model) {
-  return MODEL_AGENTS[model] || "base2-free-deepseek-flash";
+  if (MODEL_AGENTS[model]) return MODEL_AGENTS[model];
+  const lower = String(model || "").toLowerCase();
+  for (const [k, v] of Object.entries(MODEL_AGENTS)) {
+    if (lower.includes(k.toLowerCase()) || k.toLowerCase().includes(lower)) {
+      return v;
+    }
+  }
+  return "base2-free";
 }
 
 function stableFingerprint(seed) {
@@ -102,8 +113,6 @@ export class FreebuffExecutor extends BaseExecutor {
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }
-    // Note: Do NOT send x-freebuff-acting-user-id or User-Agent here, as sending
-    // acting-user-id causes upstream 409 session_superseded ("Another instance of freebuff has taken over").
     return headers;
   }
 
@@ -211,11 +220,13 @@ export class FreebuffExecutor extends BaseExecutor {
     return fallbackSess;
   }
 
-  async startRunChain(token, agentId, proxyOptions, signal) {
+  async startRunChain(token, agentId, proxyOptions, signal, forceRecreate = false) {
     const key = `${token}:${agentId}`;
-    const hit = runCache.get(key);
-    if (hit && Date.now() - hit.ts < RUN_CACHE_TTL_MS) {
-      return { runId: hit.runId, childRunId: hit.childRunId };
+    if (!forceRecreate) {
+      const hit = runCache.get(key);
+      if (hit && Date.now() - hit.ts < RUN_CACHE_TTL_MS) {
+        return { runId: hit.runId, childRunId: hit.childRunId };
+      }
     }
 
     try {
@@ -315,7 +326,7 @@ export class FreebuffExecutor extends BaseExecutor {
 
     // 1. Session acquisition & Run Chain startup
     let session = await this.getOrCreateSession(token, targetModel, proxyOptions, signal, false);
-    const { runId } = await this.startRunChain(token, agentId, proxyOptions, signal);
+    let run = await this.startRunChain(token, agentId, proxyOptions, signal, false);
 
     for (let attempt = 0; attempt < 2; attempt++) {
       const headers = this.buildHeaders(credentials, stream);
@@ -329,11 +340,11 @@ export class FreebuffExecutor extends BaseExecutor {
         stream,
         credentials,
         session,
-        runId,
+        run.runId,
         clientSessionId
       );
       const bodyStr = JSON.stringify(transformedBody);
-      log?.debug?.("FETCH", `FREEBUFF → ${url} | model=${targetModel} | runId=${runId} | inst=${session?.instanceId} (att ${attempt + 1})`);
+      log?.debug?.("FETCH", `FREEBUFF → ${url} | model=${targetModel} | agent=${agentId} | runId=${run.runId} | inst=${session?.instanceId} (att ${attempt + 1})`);
 
       const response = await proxyAwareFetch(
         url,
@@ -346,14 +357,22 @@ export class FreebuffExecutor extends BaseExecutor {
         proxyOptions
       );
 
-      // Handle 409 session_superseded or 428 waiting_room_required (session expired/replaced)
-      if ((response.status === 409 || response.status === 428 || response.status === 410) && attempt === 0) {
+      // Handle 409 session_superseded, 428 waiting_room_required or 403 free_mode_invalid_agent_model
+      if ((response.status === 409 || response.status === 428 || response.status === 410 || response.status === 403) && attempt === 0) {
         const errText = await response.clone().text();
-        if (errText.includes("session_superseded") || errText.includes("waiting_room_required") || response.status === 428 || response.status === 410) {
-          log?.debug?.("FREEBUFF", `Session stale (${response.status}), forcing delete & recreate...`);
+        if (
+          errText.includes("session_superseded") ||
+          errText.includes("waiting_room_required") ||
+          errText.includes("free_mode_invalid_agent_model") ||
+          response.status === 428 ||
+          response.status === 410
+        ) {
+          log?.debug?.("FREEBUFF", `Session/Run state mismatch (${response.status}: ${errText.slice(0, 100)}), forcing recreation...`);
           sessCache.delete(`${token}:${targetModel}`);
+          runCache.delete(`${token}:${agentId}`);
           await this.deleteSession(token, session?.instanceId, proxyOptions);
           session = await this.getOrCreateSession(token, targetModel, proxyOptions, signal, true);
+          run = await this.startRunChain(token, agentId, proxyOptions, signal, true);
           continue;
         }
       }

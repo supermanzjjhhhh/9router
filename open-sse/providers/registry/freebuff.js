@@ -31,13 +31,15 @@ export default {
   },
   models: [
     { id: "mimo/mimo-v2.5", name: "MiMo-v2.5" },
-    { id: "mimo/mimo-v2.5-pro", name: "MiMo-v2.5-Pro" },
     { id: "deepseek/deepseek-v4-pro", name: "DeepSeek-V4-Pro" },
     { id: "deepseek/deepseek-v4-flash", name: "DeepSeek-V4-Flash" },
     { id: "minimax/minimax-m3", name: "MiniMax-M3" },
     { id: "minimax/minimax-m2.7", name: "MiniMax-M2.7" },
-    { id: "moonshotai/kimi-k2.6", name: "Kimi-K2.6" },
     { id: "openai/gpt-5.6-luna", name: "GPT-5.6-Luna" },
+    { id: "z-ai/glm-5.2", name: "GLM-5.2" },
+    { id: "crof/kimi-k3-eco", name: "Kimi-K3-Eco" },
+    { id: "anthropic/claude-fable-5", name: "Claude-Fable-5" },
+    { id: "meta/muse-spark-1.2-contributor", name: "Muse-Spark-1.2" },
   ],
   serviceKinds: ["llm"],
   oauth: {
