@@ -6,6 +6,7 @@ import { randomBytes, createHash } from "crypto";
 
 const CODEBUFF_API = "https://www.codebuff.com";
 const DEFAULT_SDK_UA = "ai-sdk/openai-compatible/0.0.141/codebuff";
+const CLI_UA = "Freebuff-CLI/0.0.138";
 const CANONICAL_BUFFY = "You are Buffy, the strategic coding assistant.";
 const CONTEXT_PRUNER_AGENT = "context-pruner";
 
@@ -26,10 +27,21 @@ const MODEL_AGENTS = {
 // In-memory cache for sessions & runs (keyed by token:model)
 const sessCache = new Map(); // key -> { instanceId, model, expiresAt }
 const runCache = new Map();  // key -> { runId, childRunId, ts }
+const behaviorCache = new Map(); // key -> ts
+const BEHAVIOR_CACHE_TTL_MS = 30 * 60 * 1000;
 const RUN_CACHE_TTL_MS = 10 * 60 * 1000;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function behaviorDue(key) {
+  const ts = behaviorCache.get(key) || 0;
+  if (Date.now() - ts > BEHAVIOR_CACHE_TTL_MS) {
+    behaviorCache.set(key, Date.now());
+    return true;
+  }
+  return false;
 }
 
 function getAgentForModel(model) {
@@ -53,6 +65,71 @@ function stableFingerprint(seed) {
     h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
   }
   return `enhanced-${h1.toString(16).padStart(8, "0")}${h2.toString(16).padStart(8, "0")}`;
+}
+
+async function runClientActivitySimulation(token, clientFingerprint, proxyOptions) {
+  // 1) Ads fetch + impression report (Required by upstream free mode anti-bot)
+  if (behaviorDue(`ads:${token}`)) {
+    try {
+      const adRes = await proxyAwareFetch(
+        `${CODEBUFF_API}/api/v1/ads`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+            "User-Agent": CLI_UA,
+          },
+          body: JSON.stringify({
+            provider: "gravity",
+            sessionId: crypto.randomUUID(),
+            surface: "waiting_room",
+            device: { os: "macos", timezone: "Asia/Shanghai", locale: "zh-CN" },
+            userAgent: CLI_UA,
+          }),
+        },
+        proxyOptions
+      );
+
+      if (adRes.ok) {
+        const adData = await adRes.json();
+        const impUrl = adData?.ads?.[0]?.impUrl;
+        if (impUrl) {
+          await proxyAwareFetch(
+            `${CODEBUFF_API}/api/v1/ads/impression`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${token}`,
+                "User-Agent": CLI_UA,
+              },
+              body: JSON.stringify({ impUrl, mode: "free" }),
+            },
+            proxyOptions
+          );
+        }
+      }
+    } catch {}
+  }
+
+  // 2) Normal usage touch
+  if (behaviorDue(`usage:${token}`)) {
+    try {
+      await proxyAwareFetch(
+        `${CODEBUFF_API}/api/v1/usage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ fingerprintId: clientFingerprint }),
+        },
+        proxyOptions
+      );
+    } catch {}
+  }
 }
 
 function isUsableSession(session, now = Date.now()) {
@@ -139,6 +216,9 @@ export class FreebuffExecutor extends BaseExecutor {
 
   async getOrCreateSession(token, model, proxyOptions, signal, forceRecreate = false) {
     const cacheKey = `${token}:${model}`;
+
+    // Periodic client behavior simulation (ads + usage)
+    runClientActivitySimulation(token, stableFingerprint(token), proxyOptions).catch(() => {});
 
     if (!forceRecreate) {
       const cached = sessCache.get(cacheKey);
