@@ -28,6 +28,10 @@ const sessCache = new Map(); // key -> { instanceId, model, expiresAt }
 const runCache = new Map();  // key -> { runId, childRunId, ts }
 const RUN_CACHE_TTL_MS = 10 * 60 * 1000;
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getAgentForModel(model) {
   if (MODEL_AGENTS[model]) return MODEL_AGENTS[model];
   const lower = String(model || "").toLowerCase();
@@ -108,6 +112,7 @@ export class FreebuffExecutor extends BaseExecutor {
     const token = credentials?.apiKey || credentials?.accessToken;
     const headers = {
       "Content-Type": "application/json",
+      "User-Agent": DEFAULT_SDK_UA,
       Accept: stream ? "text/event-stream" : "application/json",
     };
     if (token) {
@@ -124,6 +129,7 @@ export class FreebuffExecutor extends BaseExecutor {
         headers: {
           Authorization: `Bearer ${token}`,
           "x-freebuff-instance-id": instanceId,
+          "User-Agent": DEFAULT_SDK_UA,
         },
       }, proxyOptions);
     } catch {
@@ -149,6 +155,7 @@ export class FreebuffExecutor extends BaseExecutor {
             method: "GET",
             headers: {
               Authorization: `Bearer ${token}`,
+              "User-Agent": DEFAULT_SDK_UA,
               "x-freebuff-include-unused-rate-limits": "1",
             },
             signal,
@@ -168,7 +175,7 @@ export class FreebuffExecutor extends BaseExecutor {
               sessCache.set(cacheKey, sess);
               return sess;
             }
-            // Model mismatch on existing active session -> delete and recreate
+            // Model mismatch on existing active session -> delete
             await this.deleteSession(token, curData.instanceId, proxyOptions);
           }
         }
@@ -187,6 +194,7 @@ export class FreebuffExecutor extends BaseExecutor {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
+            "User-Agent": DEFAULT_SDK_UA,
             "x-freebuff-model": model,
             "x-freebuff-instance-id": instId,
           },
@@ -197,6 +205,7 @@ export class FreebuffExecutor extends BaseExecutor {
 
       if (res.ok) {
         const data = await res.json();
+        // 2.1 Direct active
         if (data?.status === "active" && data?.instanceId) {
           const sess = {
             instanceId: data.instanceId,
@@ -205,6 +214,39 @@ export class FreebuffExecutor extends BaseExecutor {
           };
           sessCache.set(cacheKey, sess);
           return sess;
+        }
+
+        // 2.2 Queued waiting room (polling)
+        if (data?.status === "queued" && data?.instanceId) {
+          const inst = data.instanceId;
+          for (let i = 0; i < 10; i++) {
+            await sleep(1500);
+            const qRes = await proxyAwareFetch(
+              `${CODEBUFF_API}/api/v1/freebuff/session`,
+              {
+                method: "GET",
+                headers: {
+                  Authorization: `Bearer ${token}`,
+                  "User-Agent": DEFAULT_SDK_UA,
+                  "x-freebuff-instance-id": inst,
+                },
+                signal,
+              },
+              proxyOptions
+            );
+            if (qRes.ok) {
+              const qData = await qRes.json();
+              if (qData?.status === "active") {
+                const sess = {
+                  instanceId: qData.instanceId || inst,
+                  model,
+                  expiresAt: qData.expiresAt || new Date(Date.now() + (qData.remainingMs || 3600000)).toISOString(),
+                };
+                sessCache.set(cacheKey, sess);
+                return sess;
+              }
+            }
+          }
         }
       }
     } catch {
@@ -237,6 +279,7 @@ export class FreebuffExecutor extends BaseExecutor {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
+            "User-Agent": DEFAULT_SDK_UA,
           },
           body: JSON.stringify({
             action: "START",
@@ -261,6 +304,7 @@ export class FreebuffExecutor extends BaseExecutor {
                 headers: {
                   "Content-Type": "application/json",
                   Authorization: `Bearer ${token}`,
+                  "User-Agent": DEFAULT_SDK_UA,
                 },
                 body: JSON.stringify({
                   action: "START",
@@ -357,17 +401,18 @@ export class FreebuffExecutor extends BaseExecutor {
         proxyOptions
       );
 
-      // Handle 409 session_superseded, 428 waiting_room_required or 403 free_mode_invalid_agent_model
+      // Handle 409 session_superseded, 428 waiting_room_required, 410 session_expired or 403 free_mode_invalid_agent_model
       if ((response.status === 409 || response.status === 428 || response.status === 410 || response.status === 403) && attempt === 0) {
         const errText = await response.clone().text();
         if (
-          errText.includes("session_superseded") ||
           errText.includes("waiting_room_required") ||
+          errText.includes("session_superseded") ||
+          errText.includes("session_expired") ||
           errText.includes("free_mode_invalid_agent_model") ||
           response.status === 428 ||
           response.status === 410
         ) {
-          log?.debug?.("FREEBUFF", `Session/Run state mismatch (${response.status}: ${errText.slice(0, 100)}), forcing recreation...`);
+          log?.debug?.("FREEBUFF", `Session/Waiting-room stale (${response.status}: ${errText.slice(0, 100)}), acquiring fresh session...`);
           sessCache.delete(`${token}:${targetModel}`);
           runCache.delete(`${token}:${agentId}`);
           await this.deleteSession(token, session?.instanceId, proxyOptions);
