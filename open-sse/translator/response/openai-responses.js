@@ -7,7 +7,7 @@ import { FORMATS } from "../formats.js";
 import { buildChunk } from "../concerns/chunk.js";
 import { buildUsage } from "../concerns/usage.js";
 import { fallbackToolCallId } from "../concerns/toolCall.js";
-import { reasoningDelta } from "../concerns/reasoning.js";
+import { reasoningDelta, extractReasoningText } from "../concerns/reasoning.js";
 import { ROLE, OPENAI_BLOCK, RESPONSES_ITEM, OPENAI_FINISH, MODEL_FALLBACK } from "../schema/index.js";
 
 /**
@@ -62,6 +62,13 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
     });
   }
 
+  // Handle reasoning across vendor shapes (reasoning_content / reasoning / reasoning_details)
+  const reasoningText = extractReasoningText(delta);
+  if (reasoningText) {
+    startReasoning(state, emit, idx);
+    emitReasoningDelta(state, emit, reasoningText);
+  }
+
   // Handle text content
   if (delta.content) {
     let content = delta.content;
@@ -69,16 +76,21 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
     if (content.includes("<think>")) {
       state.inThinking = true;
       content = content.replace("<think>", "");
+      startReasoning(state, emit, idx);
     }
 
     if (content.includes("</think>")) {
       const parts = content.split("</think>");
+      const thinkPart = parts[0];
       const textPart = parts.slice(1).join("</think>");
+      if (thinkPart) emitReasoningDelta(state, emit, thinkPart);
+      closeReasoning(state, emit);
       state.inThinking = false;
       content = textPart;
     }
 
     if (state.inThinking && content) {
+      emitReasoningDelta(state, emit, content);
       return events;
     }
 
@@ -98,11 +110,79 @@ export function openaiToOpenAIResponsesResponse(chunk, state) {
   // Handle finish_reason
   if (choice.finish_reason) {
     for (const i in state.msgItemAdded) closeMessage(state, emit, i);
+    closeReasoning(state, emit);
     for (const i in state.funcCallIds) closeToolCall(state, emit, i);
     sendCompleted(state, emit);
   }
 
   return events;
+}
+
+// Helper functions
+function startReasoning(state, emit, idx) {
+  if (!state.reasoningId) {
+    state.reasoningId = `rs_${state.responseId}_${idx}`;
+    state.reasoningIndex = idx;
+    
+    emit("response.output_item.added", {
+      type: "response.output_item.added",
+      output_index: idx,
+      item: { id: state.reasoningId, type: RESPONSES_ITEM.REASONING, summary: [] }
+    });
+
+    emit("response.reasoning_summary_part.added", {
+      type: "response.reasoning_summary_part.added",
+      item_id: state.reasoningId,
+      output_index: idx,
+      summary_index: 0,
+      part: { type: RESPONSES_ITEM.SUMMARY_TEXT, text: "" }
+    });
+    state.reasoningPartAdded = true;
+  }
+}
+
+function emitReasoningDelta(state, emit, text) {
+  if (!text) return;
+  state.reasoningBuf += text;
+  emit("response.reasoning_summary_text.delta", {
+    type: "response.reasoning_summary_text.delta",
+    item_id: state.reasoningId,
+    output_index: state.reasoningIndex,
+    summary_index: 0,
+    delta: text
+  });
+}
+
+function closeReasoning(state, emit) {
+  if (state.reasoningId && !state.reasoningDone) {
+    state.reasoningDone = true;
+    
+    emit("response.reasoning_summary_text.done", {
+      type: "response.reasoning_summary_text.done",
+      item_id: state.reasoningId,
+      output_index: state.reasoningIndex,
+      summary_index: 0,
+      text: state.reasoningBuf
+    });
+
+    emit("response.reasoning_summary_part.done", {
+      type: "response.reasoning_summary_part.done",
+      item_id: state.reasoningId,
+      output_index: state.reasoningIndex,
+      summary_index: 0,
+      part: { type: RESPONSES_ITEM.SUMMARY_TEXT, text: state.reasoningBuf }
+    });
+
+    emit("response.output_item.done", {
+      type: "response.output_item.done",
+      output_index: state.reasoningIndex,
+      item: {
+        id: state.reasoningId,
+        type: RESPONSES_ITEM.REASONING,
+        summary: [{ type: RESPONSES_ITEM.SUMMARY_TEXT, text: state.reasoningBuf }]
+      }
+    });
+  }
 }
 
 function emitTextContent(state, emit, idx, content) {
@@ -313,6 +393,7 @@ function flushEvents(state) {
   };
 
   for (const i in state.msgItemAdded) closeMessage(state, emit, i);
+  closeReasoning(state, emit);
   for (const i in state.funcCallIds) closeToolCall(state, emit, i);
   sendCompleted(state, emit);
   

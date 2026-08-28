@@ -61,6 +61,11 @@ export function createResponsesApiTransformStream(logger = null) {
     msgItemAdded: {},
     msgContentAdded: {},
     msgItemDone: {},
+    reasoningId: "",
+    reasoningIndex: -1,
+    reasoningBuf: "",
+    reasoningPartAdded: false,
+    reasoningDone: false,
     inThinking: false,
     funcArgsBuf: {},
     funcNames: {},
@@ -79,6 +84,77 @@ export function createResponsesApiTransformStream(logger = null) {
     const output = `event: ${eventType}\ndata: ${JSON.stringify(data)}\n\n`;
     logger?.logOutput(output.trim());
     controller.enqueue(encoder.encode(output));
+  };
+
+  // Helper to start reasoning
+  const startReasoning = (controller, idx) => {
+    if (!state.reasoningId) {
+      state.reasoningId = `rs_${state.responseId}_${idx}`;
+      state.reasoningIndex = idx;
+      
+      emit(controller, "response.output_item.added", {
+        type: "response.output_item.added",
+        output_index: idx,
+        item: {
+          id: state.reasoningId,
+          type: "reasoning",
+          summary: []
+        }
+      });
+
+      emit(controller, "response.reasoning_summary_part.added", {
+        type: "response.reasoning_summary_part.added",
+        item_id: state.reasoningId,
+        output_index: idx,
+        summary_index: 0,
+        part: { type: "summary_text", text: "" }
+      });
+      state.reasoningPartAdded = true;
+    }
+  };
+
+  const emitReasoningDelta = (controller, text) => {
+    if (!text) return;
+    state.reasoningBuf += text;
+    emit(controller, "response.reasoning_summary_text.delta", {
+      type: "response.reasoning_summary_text.delta",
+      item_id: state.reasoningId,
+      output_index: state.reasoningIndex,
+      summary_index: 0,
+      delta: text
+    });
+  };
+
+  const closeReasoning = (controller) => {
+    if (state.reasoningId && !state.reasoningDone) {
+      state.reasoningDone = true;
+      
+      emit(controller, "response.reasoning_summary_text.done", {
+        type: "response.reasoning_summary_text.done",
+        item_id: state.reasoningId,
+        output_index: state.reasoningIndex,
+        summary_index: 0,
+        text: state.reasoningBuf
+      });
+
+      emit(controller, "response.reasoning_summary_part.done", {
+        type: "response.reasoning_summary_part.done",
+        item_id: state.reasoningId,
+        output_index: state.reasoningIndex,
+        summary_index: 0,
+        part: { type: "summary_text", text: state.reasoningBuf }
+      });
+
+      emit(controller, "response.output_item.done", {
+        type: "response.output_item.done",
+        output_index: state.reasoningIndex,
+        item: {
+          id: state.reasoningId,
+          type: "reasoning",
+          summary: [{ type: "summary_text", text: state.reasoningBuf }]
+        }
+      });
+    }
   };
 
   const closeMessage = (controller, idx) => {
@@ -223,6 +299,12 @@ export function createResponsesApiTransformStream(logger = null) {
           });
         }
 
+        // Handle reasoning_content (OpenAI native format)
+        if (delta.reasoning_content) {
+          startReasoning(controller, idx);
+          emitReasoningDelta(controller, delta.reasoning_content);
+        }
+
         // Handle text content (may contain <think> tags)
         if (delta.content) {
           let content = delta.content;
@@ -230,16 +312,22 @@ export function createResponsesApiTransformStream(logger = null) {
           if (content.includes("<think>")) {
             state.inThinking = true;
             content = content.replace("<think>", "");
+            startReasoning(controller, idx);
           }
 
           if (content.includes("</think>")) {
             const parts = content.split("</think>");
+            const thinkPart = parts[0];
             const textPart = parts.slice(1).join("</think>");
+            
+            if (thinkPart) emitReasoningDelta(controller, thinkPart);
+            closeReasoning(controller);
             state.inThinking = false;
             content = textPart;
           }
 
           if (state.inThinking && content) {
+            emitReasoningDelta(controller, content);
             continue;
           }
 
@@ -329,6 +417,7 @@ export function createResponsesApiTransformStream(logger = null) {
         // Handle finish_reason
         if (choice.finish_reason) {
           for (const i in state.msgItemAdded) closeMessage(controller, i);
+          closeReasoning(controller);
           for (const i in state.funcCallIds) closeToolCall(controller, i);
           sendCompleted(controller);
         }
@@ -337,6 +426,7 @@ export function createResponsesApiTransformStream(logger = null) {
 
     flush(controller) {
       for (const i in state.msgItemAdded) closeMessage(controller, i);
+      closeReasoning(controller);
       for (const i in state.funcCallIds) closeToolCall(controller, i);
       sendCompleted(controller);
 
@@ -346,3 +436,4 @@ export function createResponsesApiTransformStream(logger = null) {
     }
   });
 }
+
