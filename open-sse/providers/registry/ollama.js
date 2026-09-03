@@ -31,7 +31,16 @@ export default {
     { id: "nemotron-3-ultra", name: "Nemotron 3 Ultra" },
     { id: "gemma4:31b", name: "Gemma 4 31B" },
   ],
-  serviceKinds: ["llm"],
+  serviceKinds: ["llm", "webFetch"],
+  fetchConfig: {
+    baseUrl: "https://ollama.com/api/web_fetch",
+    method: "POST",
+    authType: "apikey",
+    authHeader: "bearer",
+    formats: ["markdown"],
+    maxCharacters: 200000,
+    timeoutMs: 30000,
+  },
   features: {
     usage: true,
     usageApikey: true,
