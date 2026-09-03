@@ -2,7 +2,7 @@ services:
   9router:
     build:
       context: .
-    image: 9router:0.5.59-freebuff
+    image: 9router:0.5.65-freebuff
     container_name: 9router
     restart: always
     stop_grace_period: 30s
