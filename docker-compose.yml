@@ -1,8 +1,6 @@
 services:
   9router:
-    build:
-      context: .
-    image: 9router:0.5.69-freebuff
+    image: decolua/9router:latest
     container_name: 9router
     restart: always
     stop_grace_period: 30s
