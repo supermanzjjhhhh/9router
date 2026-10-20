@@ -1,0 +1,27 @@
+FROM node:22-alpine
+
+LABEL org.opencontainers.image.title="9router" \
+      org.opencontainers.image.version="0.5.104"
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=20128
+ENV HOSTNAME=0.0.0.0
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATA_DIR=/app/data
+
+RUN apk add --no-cache su-exec python3 make g++ linux-headers && \
+    npm install -g 9router@0.5.104 --prefer-online && \
+    mkdir -p /app/data /app/data-home && \
+    ln -sf /app/data-home /root/.9router 2>/dev/null || true && \
+    printf "#!/bin/sh\nchown -R node:node /app/data /app/data-home 2>/dev/null\nexec su-exec node \"\$@\"\n" > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+RUN cp -a $(npm root -g)/9router/app/. /app/ && \
+    chown -R node:node /app
+
+EXPOSE 20128
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["node", "custom-server.js"]
