@@ -1,0 +1,42 @@
+# Artifact-level fix for Qoder CN context windows.
+#
+# WHY THIS EXISTS: the deployed 9router is the PUBLISHED npm artifact
+# (9router@0.5.104) baked into an image, not a build of this repository. The
+# capability table that carried Qoder's 1M windows was deleted upstream
+# (5c217d34), so the shipped bundles resolve every Qoder CN model to the 200K
+# DEFAULT_CAPABILITIES. The source fix in open-sse/providers/capabilities.js
+# only reaches a deployment once a new 9router release ships; this Dockerfile
+# applies the same table directly to the shipped bundles, with no Next.js
+# rebuild and no dependency change.
+#
+# The patch is intentionally narrow: CN only. Only the CN gateway is verified
+# on the 1M tiers (QODER_CONTEXT_TIER=1M). Intl `qoder` is left on the 200K
+# default. See patches/qoder-cn-caps.cjs for the exact rows.
+#
+# BUILD: this file must be built on a machine that already has the arm64 base
+# image, or with buildx (arm64 emulation is ~1 min; no compile step runs).
+#   docker buildx build --platform linux/arm64 \
+#     -f Dockerfile.qoder-cn-caps -t 9router:0.5.104-qoder-cn-caps.1 .
+FROM decolua/9router:0.5.104
+
+ARG VCS_REF
+LABEL org.opencontainers.image.version="0.5.104-qoder-cn-caps.1" \
+      org.opencontainers.image.source="https://github.com/supermanzjjhhhh/9router" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      io.9router.base-version="0.5.104" \
+      io.9router.patch="qoder-cn-caps"
+
+COPY patches/qoder-cn-caps.cjs /opt/9router-patches/qoder-cn-caps.cjs
+
+# Fail the build loudly if the base is not the expected artifact. `node --check`
+# then proves each patched bundle still parses, so a bad anchor can never ship.
+RUN node -e 'if (require("/app/package.json").version !== "0.5.104") throw new Error("Unsupported baseline version")' && \
+    node /opt/9router-patches/qoder-cn-caps.cjs \
+      /app/.next/server/chunks/24.js \
+      /app/.next/server/chunks/412.js \
+      /app/.next/server/chunks/8402.js \
+      /app/.next/static/chunks/5497-d7896a9cac1a7182.js && \
+    node --check /app/.next/server/chunks/24.js && \
+    node --check /app/.next/server/chunks/412.js && \
+    node --check /app/.next/server/chunks/8402.js && \
+    node --check /app/.next/static/chunks/5497-d7896a9cac1a7182.js
