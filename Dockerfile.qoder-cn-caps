@@ -55,10 +55,10 @@ COPY patches/qoder-cn-caps.cjs /opt/9router-patches/qoder-cn-caps.cjs
 # 3. Apply the .2 capability patch to all 8 copies (all-or-nothing inside the
 #    script; each file must hold exactly one anchor).
 # 4. Re-parse every patched file and assert exactly one .2 marker.
+# /app only exists after the `cp -a` layer below, so this layer checks the
+# global tree; the /app copy is asserted in that later layer.
 RUN set -eu; \
-    for root in /usr/local/lib/node_modules/9router/app /app; do \
-      test "$(node -p "require('$root/package.json').version")" = "0.5.104"; \
-    done; \
+    test "$(node -p "require('/usr/local/lib/node_modules/9router/app/package.json').version")" = "0.5.104"; \
     test "$(grep -c 'b=Object.entries(b)' /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/5330.js)" = "0"; \
     node /opt/9router-patches/qoder-context-config.cjs \
       /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/5330.js; \
