@@ -47,14 +47,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Tag pushes carry no inputs, so derive the tag from the ref.
+      # Tag pushes carry no inputs, so derive the image tag from the ref:
+      #   git tag qoder-caps-qoder-cn-caps.2  ->  image :qoder-cn-caps.2
+      # A bare numeric suffix (qoder-caps-2) is rejected rather than silently
+      # publishing an ambiguous image tag.
       - name: Resolve image tag
         id: meta
         run: |
+          set -eu
           if [ -n "${{ inputs.image_tag }}" ]; then
             tag="${{ inputs.image_tag }}"
           else
             tag="${GITHUB_REF_NAME#qoder-caps-}"
+            if ! printf '%s' "$tag" | grep -Eq '^[a-z0-9][a-z0-9._-]{2,}$'; then
+              echo "::error::Tag '$GITHUB_REF_NAME' yields ambiguous image tag '$tag'. Use a ref like qoder-caps-qoder-cn-caps.2"
+              exit 1
+            fi
           fi
           echo "tag=$tag" >> "$GITHUB_OUTPUT"
           echo "Resolved tag: $tag"
