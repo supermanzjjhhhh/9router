@@ -1,19 +1,23 @@
 name: Build Qoder CN caps image
 
-# Fork-only, manual. Builds the artifact-patch image on top of the exact
-# production base and pushes it to GHCR. Does NOT touch production: the
-# deployment swap is the operator's call.
+# Fork-only. Builds 9router 0.5.104 + the .1 context_config patch + the .2
+# Qoder CN capability patch, and pushes it to GHCR. It does NOT touch
+# production: the deployment swap is the operator's call.
 #
-# Why arm64-only: the deployed host is aarch64 (Ory Linux on ARM), and the base
-# image export is arm64. Emulating amd64 here would add minutes for an image
-# nothing runs.
+# TRIGGERS
+#   - push of a tag matching `qoder-caps-*`: this is the path used from a
+#     feature branch, because `workflow_dispatch` only offers workflows that
+#     exist on the default branch (master) and we do not modify master.
+#   - manual dispatch once this file lands on master.
+#
+# arm64 only: the deployed host is aarch64, and the npm artifact + patches are
+# architecture-independent, so an amd64 build would only cost minutes.
 on:
+  push:
+    tags:
+      - "qoder-caps-*"
   workflow_dispatch:
     inputs:
-      base_image:
-        description: "Exact production image export (must contain the .1 patch)"
-        required: true
-        default: "ghcr.io/supermanzjjhhhh/9router:qoder-context-base-20261021"
       image_tag:
         description: "Tag to push (qoder-cn-caps.2 unless superseding)"
         required: true
@@ -23,10 +27,14 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: qoder-cn-caps-image
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -39,24 +47,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # The whole premise is "same bits as production plus one table". Assert
-      # the base really is that export before spending a build on it, so a
-      # mistyped/missing base fails here instead of shipping a wrong image.
-      - name: Verify base image carries the .1 patch
-        env:
-          BASE_IMAGE: ${{ inputs.base_image }}
+      # Tag pushes carry no inputs, so derive the tag from the ref.
+      - name: Resolve image tag
+        id: meta
         run: |
-          set -eu
-          docker pull --platform linux/arm64 "$BASE_IMAGE"
-          cid="$(docker create --platform linux/arm64 "$BASE_IMAGE")"
-          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
-          for root in /app /usr/local/lib/node_modules/9router/app; do
-            docker run --rm --platform linux/arm64 --entrypoint node "$BASE_IMAGE" \
-              -e "process.exit(require('$root/package.json').version === '0.5.104' ? 0 : 1)"
-            # .1 patch marker: object-shaped context_config adapter
-            docker run --rm --platform linux/arm64 --entrypoint grep "$BASE_IMAGE" \
-              -q 'b=Object.entries(b)' "$root/.next-cli-build/server/chunks/5330.js"
-          done
+          if [ -n "${{ inputs.image_tag }}" ]; then
+            tag="${{ inputs.image_tag }}"
+          else
+            tag="${GITHUB_REF_NAME#qoder-caps-}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved tag: $tag"
 
       - name: Build and push
         uses: docker/build-push-action@v6
@@ -65,10 +66,9 @@ jobs:
           file: ./Dockerfile.qoder-cn-caps
           platforms: linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}
+          tags: ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.tag }}
           build-args: |
             VCS_REF=${{ github.sha }}
-            BASE_IMAGE=${{ inputs.base_image }}
           provenance: false
           sbom: false
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:qoder-cn-caps-buildcache
@@ -77,4 +77,4 @@ jobs:
       - name: Report digest
         run: |
           docker buildx imagetools inspect \
-            "ghcr.io/${{ github.repository }}:${{ inputs.image_tag }}"
+            "ghcr.io/${{ github.repository }}:${{ steps.meta.outputs.tag }}"

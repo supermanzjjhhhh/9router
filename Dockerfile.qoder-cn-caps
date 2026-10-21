@@ -1,66 +1,93 @@
-# Qoder CN context-window fix, applied on top of the CURRENT DEPLOYED image.
+# 9router 0.5.104 + .1 context_config patch + Qoder CN capability fix.
 #
-# WHAT THIS BUILDS ON: ghcr.io/supermanzjjhhhh/9router:qoder-context-base-20261021
-# is an exact export of the production image 9router:0.5.104-qoder-context.1
-# (sha256:e4b004e3328bd64180d98c843a1e44e3ebd96ed04035a915e031d4b1d0a9335b).
-# That base already contains the .1 patch (object-shaped `context_config`
-# catalogs) in chunks/5330.js. This file never re-applies it and never rebuilds
-# Next.js — it only rewrites the capability tables in the shipped bundles, so
-# every other production bit (executors, DB, .1 patch, data wiring) is bit-for-bit
-# the running image.
+# SELF-CONTAINED: starts from the public npm artifact 9router@0.5.104 exactly
+# like the deployed Dockerfile.npm does, so this image needs no parent-built
+# base and no Next.js build. Pinned by version, not by tag.
 #
-# WHY A PATCH AND NOT A SOURCE BUILD: production runs the published
-# 9router@0.5.104 npm artifact, not a build of this repository. A source build
-# would drop the .1 runtime patch and every other deployed delta. The source
-# fix in open-sse/providers/capabilities.js ships in a future 9router release;
-# this is the interim artifact fix.
+# PROVENANCE OF THE .1 PATCH: patches/qoder-context-config.cjs is restored from
+# commit ace76ec6 (the commit that built the running
+# 9router:0.5.104-qoder-context.1, sha256:e4b004e3328b...). It fixes Qoder CN
+# models that return `context_config` as an OBJECT instead of a tier array, and
+# is re-applied here byte-identically so the deployed behaviour is preserved.
+#
+# WHAT .2 ADDS: the capability tables only. Upstream 5c217d34 deleted the shared
+# PROVIDER_CAPABILITIES["qoder"] table but kept the CN alias pointing at it, so
+# every Qoder CN model resolved to the 200K default and combos that min-aggregate
+# member windows inherited 200K (my-domestic: qdcn/dfmodel is a 1M model).
 #
 # SCOPE: CN only. Only the CN gateway is verified on 1M tiers
 # (QODER_CONTEXT_TIER=1M, live 200 OK at max_input_tokens:1000000 for dfmodel).
 # Intl `qoder` keeps the 200K default.
 #
-# Layout note: the npm artifact ships capabilities in FOUR chunks per tree
-# (server 24/412/8402 + static 5497), and the image carries TWO trees
-# (/app and the global npm install). All eight copies are patched; the script
-# validates every anchor before writing any file.
-# Pin the digest in CI (workflow input); the tag is the human-readable default.
-ARG BASE_IMAGE=ghcr.io/supermanzjjhhhh/9router:qoder-context-base-20261021
-FROM ${BASE_IMAGE}
+# TWO TREES: the npm layout ships the app both under /app (copied) and under the
+# global npm root. Both are patched; the app copy is what runs.
+FROM node:22-alpine
 
-ARG VCS_REF
-LABEL org.opencontainers.image.version="0.5.104-qoder-cn-caps.2" \
+LABEL org.opencontainers.image.title="9router" \
+      org.opencontainers.image.version="0.5.104-qoder-cn-caps.2" \
       org.opencontainers.image.source="https://github.com/supermanzjjhhhh/9router" \
-      org.opencontainers.image.revision="${VCS_REF}" \
       io.9router.base-version="0.5.104" \
       io.9router.patch="qoder-context-config-object+qoder-cn-caps"
 
+ARG VCS_REF
+LABEL org.opencontainers.image.revision="${VCS_REF}"
+
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV PORT=20128
+ENV HOSTNAME=0.0.0.0
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV DATA_DIR=/app/data
+
+RUN apk add --no-cache su-exec python3 make g++ linux-headers && \
+    npm install -g 9router@0.5.104 --prefer-online && \
+    mkdir -p /app/data /app/data-home && \
+    ln -sf /app/data-home /root/.9router 2>/dev/null || true && \
+    printf "#!/bin/sh\nchown -R node:node /app/data /app/data-home 2>/dev/null\nexec su-exec node \"\$@\"\n" > /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+COPY patches/qoder-context-config.cjs /opt/9router-patches/qoder-context-config.cjs
 COPY patches/qoder-cn-caps.cjs /opt/9router-patches/qoder-cn-caps.cjs
 
-# 1. Prove the base is the expected artifact AND still carries the .1 patch —
-#    if either is missing the whole premise of this image is wrong, so fail.
-# 2. Patch all 8 shipped copies.
-# 3. Re-parse every patched file, so a bad anchor can never reach a layer.
+# 1. Assert the artifact is the expected version in BOTH trees.
+# 2. Re-apply the .1 context_config patch exactly as .1 did (server chunk 5330).
+# 3. Apply the .2 capability patch to all 8 copies (all-or-nothing inside the
+#    script; each file must hold exactly one anchor).
+# 4. Re-parse every patched file and assert exactly one .2 marker.
 RUN set -eu; \
-    for root in /app /usr/local/lib/node_modules/9router/app; do \
+    for root in /usr/local/lib/node_modules/9router/app /app; do \
       test "$(node -p "require('$root/package.json').version")" = "0.5.104"; \
-      test "$(grep -c 'b=Object.entries(b)' "$root/.next-cli-build/server/chunks/5330.js")" -ge 1; \
     done; \
+    test "$(grep -c 'b=Object.entries(b)' /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/5330.js)" = "0"; \
+    node /opt/9router-patches/qoder-context-config.cjs \
+      /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/5330.js; \
     node /opt/9router-patches/qoder-cn-caps.cjs \
-      /app/.next-cli-build/server/chunks/24.js \
-      /app/.next-cli-build/server/chunks/412.js \
-      /app/.next-cli-build/server/chunks/8402.js \
-      /app/.next-cli-build/static/chunks/5497-d7896a9cac1a7182.js \
       /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/24.js \
       /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/412.js \
       /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/8402.js \
       /usr/local/lib/node_modules/9router/app/.next-cli-build/static/chunks/5497-d7896a9cac1a7182.js; \
-    for root in /app /usr/local/lib/node_modules/9router/app; do \
-      for f in server/chunks/24.js server/chunks/412.js server/chunks/8402.js \
-               static/chunks/5497-d7896a9cac1a7182.js; do \
-        node --check "$root/.next-cli-build/$f"; \
-        test "$(grep -c '9router-qoder-cn-caps' "$root/.next-cli-build/$f")" = "1"; \
-      done; \
-    done
+    for f in server/chunks/24.js server/chunks/412.js server/chunks/8402.js \
+             static/chunks/5497-d7896a9cac1a7182.js; do \
+      node --check "/usr/local/lib/node_modules/9router/app/.next-cli-build/$f"; \
+      test "$(grep -c '9router-qoder-cn-caps' "/usr/local/lib/node_modules/9router/app/.next-cli-build/$f")" = "1"; \
+    done; \
+    test "$(grep -c 'b=Object.entries(b)' /usr/local/lib/node_modules/9router/app/.next-cli-build/server/chunks/5330.js)" -ge 1
 
-# The npm image runs as non-root `node` via su-exec; new files must stay readable.
-RUN chown -R node:node /opt/9router-patches 2>/dev/null || true
+# The deployed app runs from /app. Copy the already-patched global app there
+# (same order as Dockerfile.npm). The /app copy is patched by construction, so
+# it is ONLY asserted — re-running the .1 patch here would fail, by design:
+# patches/qoder-context-config.cjs refuses a file it already rewrote.
+RUN cp -a $(npm root -g)/9router/app/. /app/ && \
+    for f in server/chunks/24.js server/chunks/412.js server/chunks/8402.js \
+             static/chunks/5497-d7896a9cac1a7182.js; do \
+      node --check "/app/.next-cli-build/$f"; \
+      test "$(grep -c '9router-qoder-cn-caps' "/app/.next-cli-build/$f")" = "1"; \
+    done && \
+    test "$(grep -c 'b=Object.entries(b)' /app/.next-cli-build/server/chunks/5330.js)" -ge 1 && \
+    chown -R node:node /app /opt/9router-patches
+
+EXPOSE 20128
+
+ENTRYPOINT ["/entrypoint.sh"]
+CMD ["node", "custom-server.js"]
