@@ -363,24 +363,32 @@ export const PROVIDER_CAPABILITIES = {
     "poolside/laguna-xs-2.1:free":      { tools: true, reasoning: true, thinkingFormat: "nous", contextWindow: 262144, maxOutput: 32768 },
     "stealth/missingno":                { tools: true, reasoning: true, thinkingFormat: "nous", contextWindow: 262144, maxOutput: 131072 },
   },
-  // Qoder — upstream exposes opaque internal ids (dfmodel, kmodel, …); the
+  // Qoder CN — upstream exposes opaque internal ids (dfmodel, kmodel, …); the
   // registry `name` is display-only and capability lookup matches on the raw
-  // id, so every qoder model would fall through to DEFAULT_CAPABILITIES
-  // (200K) without this map. contextWindow follows the real model family's
-  // spec: the /algo/api/v2/model/list max_input_tokens under-reports some
-  // windows (GLM-5.3 / Kimi-K3 / Qwen3.8-Max claim 180K but accept more).
-  // max_output_tokens arrives as 0 for every model, so outputs are
-  // best-guess from the real model family. Vision tags below follow the
-  // upstream is_vl flag per explicit request, even though the executor
-  // currently sends image_urls:null (image pass-through over the agent_chat
-  // SSE protocol is unverified). reasoning:true on all of them — every model can
-  // reason; the upstream is_reasoning flag only drives model_config selection.
-  // thinkingFormat keeps the true-model family for documentation/UI, but
-  // thinkingCanDisable:false everywhere: the executor only forwards
-  // messages/tools/max_tokens, and thinking is fixed upstream via
+  // id, so every CN model would fall through to DEFAULT_CAPABILITIES (200K)
+  // without this map. contextWindow follows the real model family's spec: the
+  // /algo/api/v2/model/list max_input_tokens under-reports some windows (GLM-5.3
+  // / Kimi-K3 / Qwen3.8-Max claim 180K but accept more), and the deployed
+  // gateway runs QODER_CONTEXT_TIER=1M with a live 200 OK at
+  // max_input_tokens:1000000 recorded for dfmodel. max_output_tokens arrives as
+  // 0 for every model, so outputs are best-guess from the real model family.
+  // Vision tags below follow the upstream is_vl flag per explicit request, even
+  // though the executor currently sends image_urls:null (image pass-through over
+  // the agent_chat SSE protocol is unverified). reasoning:true on all of them —
+  // every model can reason; the upstream is_reasoning flag only drives
+  // model_config selection. thinkingFormat keeps the true-model family for
+  // documentation/UI, but thinkingCanDisable:false everywhere: the executor only
+  // forwards messages/tools/max_tokens, and thinking is fixed upstream via
   // modelConfig.is_reasoning — client thinking intent is dropped, so "none"
   // must never be offered as an option.
-  "qoder": {
+  //
+  // One table per provider id. The alias rows under PROVIDER_CAPABILITIES
+  // below map combo seats (they carry the registry alias, e.g. `qdcn/dfmodel`);
+  // /v1/models and the dashboard map alias → provider id first. The intl
+  // `qoder` provider is deliberately NOT given a table here: only the CN
+  // gateway was confirmed on 1M tiers, so intl keeps the 200K default until
+  // its own windows are verified.
+  "qoder-cn": {
     "ultimate":       { vision: true, reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 }, // Claude Opus 5
     "performance":    { vision: true, reasoning: true, thinkingFormat: "claude-adaptive", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 128000 }, // Claude Sonnet 5
     "dmodel":         { reasoning: true, thinkingFormat: "deepseek", thinkingCanDisable: false, contextWindow: 1000000, maxOutput: 65536 },  // DeepSeek-V4-Pro
@@ -397,17 +405,13 @@ export const PROVIDER_CAPABILITIES = {
   },
 };
 
-// Qoder CN serves the identical model catalog from the CN gateway, so it shares
-// the intl Qoder capability table verbatim (vision/reasoning/contextWindow).
-// Keep this alias AFTER the table is defined — pointing it at a provider key
-// that does not exist silently resolves every Qoder CN model to the 200K
-// DEFAULT_CAPABILITIES (the my-domestic combo then min-aggregates to 200K).
-PROVIDER_CAPABILITIES["qoder-cn"] = PROVIDER_CAPABILITIES["qoder"];
-// Registry aliases: combos and /v1/models ids carry the alias (`qdcn/dfmodel`),
-// not the provider id, so the alias must resolve to the same table too. Same
-// pattern as cx/codex and dv/devin-cli below.
-PROVIDER_CAPABILITIES.qd = PROVIDER_CAPABILITIES["qoder"];
-PROVIDER_CAPABILITIES.qdcn = PROVIDER_CAPABILITIES["qoder"];
+// Registry aliases: combo seats and client-facing ids carry the registry alias
+// (`qdcn/dfmodel`), not the provider id, so the alias must resolve to the same
+// table — aggregateComboCapabilities passes the alias straight through
+// (src/app/api/v1/models/route.js). Without this row the CN table above would
+// still resolve my-domestic to the 200K DEFAULT_CAPABILITIES. Same pattern as
+// cx/codex and dv/devin-cli.
+PROVIDER_CAPABILITIES.qdcn = PROVIDER_CAPABILITIES["qoder-cn"];
 PROVIDER_CAPABILITIES.cx = PROVIDER_CAPABILITIES.codex;
 PROVIDER_CAPABILITIES.dv = PROVIDER_CAPABILITIES["devin-cli"];
 PROVIDER_CAPABILITIES.devin = PROVIDER_CAPABILITIES["devin-cli"];
