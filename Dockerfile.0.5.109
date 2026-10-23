@@ -1,0 +1,10 @@
+FROM decolua/9router:0.5.109
+
+LABEL org.opencontainers.image.version="0.5.109-patched.1" \
+      io.9router.base-version="0.5.109" \
+      io.9router.patch="qoder-context-config+usage-provider-filter"
+
+COPY patches/apply-patches-0.5.109.cjs /tmp/apply-patches.cjs
+RUN node -e 'if (require("/app/package.json").version !== "0.5.109") throw new Error("Unsupported baseline version")' && \
+    node /tmp/apply-patches.cjs && \
+    rm /tmp/apply-patches.cjs

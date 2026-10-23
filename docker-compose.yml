@@ -2,8 +2,8 @@ services:
   9router:
     build:
       context: .
-      dockerfile: Dockerfile.qoder-context
-    image: 9router:0.5.104-qoder-context.1
+      dockerfile: Dockerfile.0.5.109
+    image: 9router:0.5.109-patched.1
     container_name: 9router
     networks:
       - default
@@ -25,6 +25,7 @@ services:
       BASE_URL: http://localhost:20128
       NODE_OPTIONS: "--max-old-space-size=350"
       QODER_CONTEXT_TIER: "1M"
+      ENABLE_REQUEST_LOGS: "true"
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:20128/api/health || exit 1"]
       interval: 30s
